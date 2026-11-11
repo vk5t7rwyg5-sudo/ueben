@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="de-CH">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Üben</title>
+<meta name="theme-color" content="#f5f6f5" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#101513" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Üben">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<div class="wrap">
+  <div class="topbar">
+    <span class="syncline" id="sync">Wird geladen …</span>
+    <div class="links">
+      <a class="icon-btn" href="https://claude.ai/artifact/9jAYFcEy4z6ftvj57MG67e" target="_blank" rel="noopener">Aufgaben ↗</a>
+      <button class="icon-btn" type="button" id="gear" aria-pressed="false" aria-controls="settings">Einstellungen</button>
+    </div>
+  </div>
+
+  <header>
+    <div>
+      <div class="label" id="eyebrow">&nbsp;</div>
+      <h1>Üben</h1>
+    </div>
+    <div class="stats" id="pstats" aria-live="polite"></div>
+  </header>
+
+  <section class="settings" id="settings" hidden aria-label="Einstellungen"></section>
+
+  <div class="view" id="view-ueben">
+    <section class="today-plan" aria-label="Heute üben">
+      <div>
+        <div class="plan-head">
+          <h2>Heute üben</h2>
+          <div class="seg" id="session" role="group" aria-label="Übezeit"></div>
+        </div>
+        <ol class="plan-list" id="plan"></ol>
+        <div class="plan-total" id="plan-total"></div>
+      </div>
+      <div class="week">
+        <div class="label">Diese Woche</div>
+        <div class="bars" id="bars"></div>
+        <div class="daylog" id="daylog" aria-live="polite"></div>
+      </div>
+    </section>
+
+    <section aria-label="Neues Stück">
+      <form class="capture" id="padd" autocomplete="off">
+        <input type="text" id="padd-title" placeholder="Neues Stück …" aria-label="Titel des Stücks" required>
+        <select id="padd-area" aria-label="Bereich"></select>
+        <input type="date" id="padd-date" aria-label="Bis wann geübt (optional)">
+        <button class="btn" type="submit">Hinzufügen</button>
+      </form>
+      <div class="hint">Datum = bis wann das Stück sitzen muss (Konzert, Prüfung, Probe). Phase, Tempo und Baustellen ergänzt du per Tipp auf den Titel.</div>
+    </section>
+
+    <section aria-labelledby="rep-h">
+      <div class="list-head">
+        <h2 id="rep-h">Repertoire</h2>
+        <div class="seg" id="psort" role="group" aria-label="Sortierung">
+          <button type="button" data-sort="area">Nach Bereich</button>
+          <button type="button" data-sort="date">Nach Termin</button>
+        </div>
+      </div>
+      <div id="plist"></div>
+      <details class="archive" id="parch-wrap" hidden><summary id="parch-sum"></summary><div id="parch"></div></details>
+    </section>
+  </div>
+</div>
+<input type="file" id="import-file" accept="application/json,.json" hidden>
+<script src="sync.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
