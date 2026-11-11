@@ -106,6 +106,8 @@
     $("settings").hidden = !showSettings;
     if (showSettings) renderSettings();
 
+    renderTimer();
+
     $("session").innerHTML = [30, 45, 60, 90].map((m) => `<button type="button" data-session="${m}" aria-pressed="${session === m}">${m}′</button>`).join("");
 
     const act = active();
@@ -295,13 +297,14 @@
   // ---------- Schreiben ----------
   const newId = () => "p-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 
+  // id = Stück oder null (freies Üben / Einspielen)
   function logPractice(id, min) {
-    const p = pieces.get(id); if (!p) return;
+    const p = id ? pieces.get(id) : null; if (id && !p) return;
     const d = todayStr(); const cur = days.get(d) || { date: d, entries: [], total: 0 };
-    const next = { date: d, entries: [...(cur.entries || []), { piece: id, title: p.title, min, at: new Date().toISOString() }], total: (cur.total || 0) + min };
+    const next = { date: d, entries: [...(cur.entries || []), { piece: p ? id : null, title: p ? p.title : "Freies Üben", min, at: new Date().toISOString() }], total: (cur.total || 0) + min };
     days.set(d, next); saveDay(d, next);
-    Object.assign(p, { lastPracticed: d, totalMinutes: (p.totalMinutes || 0) + min }); savePiece(p);
-    logId = null; selDay = d; render(); toast(`${min} Min. eingetragen`);
+    if (p) { Object.assign(p, { lastPracticed: d, totalMinutes: (p.totalMinutes || 0) + min }); savePiece(p); }
+    logId = null; selDay = d; render(); toast(`${min} Min. eingetragen${p ? " · " + p.title : ""}`);
   }
 
   function removeEntry(day, idx) {
@@ -387,6 +390,138 @@
   document.addEventListener("focusout", () => setTimeout(() => { if (pending && !document.activeElement?.closest?.(".editor, .form")) render(); }, 0));
   // Tageswechsel (App bleibt offen): neu zeichnen
   document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") render(); });
+
+  // ---------- Übe-Timer ----------
+  // Zustand wird mit Endzeitpunkt gespeichert, damit der Timer auch nach Hintergrund/Neuladen stimmt.
+  // Phasen: idle → work → brk → ready (→ work …)
+  const tcfg = Object.assign({ work: 30, brk: 10, focus: false, startName: "Üben Start", endName: "Üben Ende" }, pref.get("ueben.timerCfg", {}));
+  let T = Object.assign({ phase: "idle", endsAt: 0, left: 0, paused: false, piece: "", round: 0, workMin: 30 }, pref.get("ueben.timer", {}));
+  let tEdit = false, tHelp = false, wake = null, actx = null;
+  const saveT = () => pref.set("ueben.timer", T), saveCfg = () => pref.set("ueben.timerCfg", tcfg);
+  const mmss = (ms) => { const s = Math.max(0, Math.ceil(ms / 1000)); return `${Math.floor(s / 60)}:${pad(s % 60)}`; };
+  const leftMs = () => (T.paused ? T.left : T.endsAt - Date.now());
+  const suggestPiece = () => active().map((p) => ({ p, s: score(p) })).sort((a, b) => b.s - a.s)[0]?.p._id || "";
+
+  function chime(n) {
+    try {
+      if (!actx) return; actx.resume?.();
+      for (let i = 0; i < n; i++) {
+        const o = actx.createOscillator(), g = actx.createGain(), t0 = actx.currentTime + i * 0.45;
+        o.type = "sine"; o.frequency.value = i % 2 ? 660 : 880; o.connect(g); g.connect(actx.destination);
+        g.gain.setValueAtTime(0.0001, t0); g.gain.exponentialRampToValueAtTime(0.4, t0 + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.4);
+        o.start(t0); o.stop(t0 + 0.42);
+      }
+    } catch (e) {}
+    try { navigator.vibrate?.([300, 150, 300]); } catch (e) {}
+  }
+  async function keepAwake(on) {
+    try {
+      if (on && !wake && "wakeLock" in navigator && document.visibilityState === "visible") { wake = await navigator.wakeLock.request("screen"); wake.addEventListener("release", () => { wake = null; }); }
+      if (!on && wake) { await wake.release(); wake = null; }
+    } catch (e) { wake = null; }
+  }
+  function runShortcut(name, input) {
+    if (!tcfg.focus || !name) return;
+    location.href = "shortcuts://run-shortcut?name=" + encodeURIComponent(name) + (input != null ? "&input=text&text=" + encodeURIComponent(String(input)) : "");
+  }
+
+  function tStart() {
+    try { actx = actx || new (window.AudioContext || window.webkitAudioContext)(); actx.resume?.(); } catch (e) {}
+    T = { phase: "work", endsAt: Date.now() + tcfg.work * 60000, left: 0, paused: false, piece: T.piece || suggestPiece(), round: (T.phase === "ready" ? T.round : 0) + 1, workMin: tcfg.work };
+    saveT(); keepAwake(true); render();
+    runShortcut(tcfg.startName, tcfg.work);
+  }
+  function tPause() {
+    if (T.paused) { T.endsAt = Date.now() + T.left; T.paused = false; keepAwake(true); }
+    else { T.left = Math.max(0, T.endsAt - Date.now()); T.paused = true; }
+    saveT(); render();
+  }
+  function tStop() {
+    if (T.phase === "brk") { T = { ...T, phase: "ready", paused: false }; saveT(); keepAwake(false); render(); return; }
+    const done = Math.round((T.workMin * 60000 - leftMs()) / 60000), piece = T.piece || null;
+    T = { ...T, phase: "idle", paused: false, round: 0 }; saveT(); keepAwake(false); document.title = "Üben";
+    if (done >= 5) logPractice(piece, done); else render();
+    runShortcut(tcfg.endName, null);
+  }
+  // Prüft Phasenwechsel, auch rückwirkend (App war im Hintergrund)
+  function tCheck() {
+    if (!ready) return false;   // erst wenn die Daten geladen sind (sonst geht der Eintrag verloren)
+    if (T.paused || T.phase === "idle" || T.phase === "ready") return false;
+    if (Date.now() < T.endsAt) return false;
+    if (T.phase === "work") {
+      const piece = T.piece || null, min = T.workMin;
+      T.phase = "brk"; T.endsAt = T.endsAt + tcfg.brk * 60000; saveT();   // zuerst Phase wechseln, dann eintragen (render ruft tCheck)
+      chime(3); logPractice(piece, min); return true;
+    }
+    if (T.phase === "brk") { T.phase = "ready"; saveT(); keepAwake(false); chime(2); return true; }
+    return false;
+  }
+
+  function renderTimer() {
+    tCheck();
+    const box = $("timer"); if (!box) return;
+    const act = active();
+    if (ready && T.piece && !pieces.get(T.piece)) T.piece = "";
+    const opts = `<option value="">Freies Üben</option>` + act.map((p) => `<option value="${esc(p._id)}"${p._id === (T.piece || "") ? " selected" : ""}>${esc(p.title)}</option>`).join("");
+    const running = T.phase === "work" || T.phase === "brk";
+    const label = { idle: "Übe-Timer", work: `Runde ${T.round} · Üben`, brk: "Pause", ready: `Pause vorbei · ${T.round} Runde${T.round === 1 ? "" : "n"} geschafft` }[T.phase];
+    const total = (T.phase === "brk" ? tcfg.brk : T.workMin) * 60000;
+    const pct = running ? Math.min(100, Math.max(0, 100 - (leftMs() / total) * 100)) : 0;
+    let main;
+    if (running) {
+      main = `<div class="t-time mono" id="t-time">${mmss(leftMs())}</div>
+        <div class="t-bar"><i id="t-bar" style="width:${pct}%"></i></div>
+        <div class="t-sub">${T.phase === "work" ? `${esc(pieces.get(T.piece)?.title || "Freies Üben")} · danach ${tcfg.brk}′ Pause` : "Aufstehen, trinken, Hände lockern"}${T.paused ? " · angehalten" : ""}</div>
+        <div class="row"><button class="btn" type="button" data-t="pause">${T.paused ? "Weiter" : "Anhalten"}</button><button class="btn ghost" type="button" data-t="stop">${T.phase === "work" ? "Beenden" : "Pause überspringen"}</button></div>`;
+    } else {
+      main = `<div class="t-time mono">${tcfg.work}:00</div>
+        <div class="t-sub">${tcfg.work}′ üben, dann ${tcfg.brk}′ Pause${tcfg.focus ? " · Fokus «Üben» an (nur Anrufe)" : ""}</div>
+        <label class="t-piece">Stück <select data-t="piece">${opts}</select></label>
+        <div class="row"><button class="btn" type="button" data-t="start">${T.phase === "ready" ? "Nächste Runde" : "Start"}</button>${T.phase === "ready" ? `<button class="btn ghost" type="button" data-t="reset">Fertig für heute</button>` : ""}<button class="linkish" type="button" data-t="edit">${tEdit ? "Schliessen" : "Anpassen"}</button></div>`;
+    }
+    const edit = tEdit && !running ? `<div class="t-edit">
+        <div class="row"><span class="label">Üben</span><div class="seg">${[20, 25, 30, 45, 60].map((m) => `<button type="button" data-t="work" data-v="${m}" aria-pressed="${tcfg.work === m}">${m}′</button>`).join("")}</div></div>
+        <div class="row"><span class="label">Pause</span><div class="seg">${[5, 10, 15].map((m) => `<button type="button" data-t="brk" data-v="${m}" aria-pressed="${tcfg.brk === m}">${m}′</button>`).join("")}</div></div>
+        <label class="row t-check"><input type="checkbox" data-t="focus"${tcfg.focus ? " checked" : ""}> Beim Start Fokus «Üben» einschalten (nur Anrufe kommen durch)</label>
+        <button class="linkish" type="button" data-t="help">${tHelp ? "Anleitung ausblenden" : "Einrichten: Fokus + Kurzbefehl (einmalig, 3 Min.)"}</button>
+        ${tHelp ? `<ol class="t-help">
+          <li><b>Fokus anlegen:</b> Einstellungen → Fokus → + → Eigener → Name <b>Üben</b>. Mitteilungen erlauben von: <b>Personen: niemand</b>, <b>Apps: keine</b>. Unter Personen → <b>Anrufe von: Alle</b> erlauben.</li>
+          <li><b>Kurzbefehl «${esc(tcfg.startName)}»</b> in der App Kurzbefehle: Aktion <i>Datum anpassen</i> (Aktuelles Datum + <i>Kurzbefehleingabe</i> Minuten) → Aktion <i>Fokus festlegen</i>: Üben <b>einschalten bis</b> Zeit = angepasstes Datum. Optional: <i>Timer starten</i> mit Kurzbefehleingabe Minuten (klingelt sicher, auch wenn die App im Hintergrund ist).</li>
+          <li><b>Kurzbefehl «${esc(tcfg.endName)}»:</b> Aktion <i>Fokus festlegen</i>: Üben <b>ausschalten</b>.</li>
+          <li>Beim Start öffnet die App kurz «Kurzbefehle». Mit «◀ Üben» oben links kommst du zurück.</li></ol>` : ""}
+      </div>` : "";
+    if (!running) document.title = "Üben";
+    box.className = "timer" +(T.phase === "work" ? " is-work" : T.phase === "brk" ? " is-brk" : "");
+    box.innerHTML = `<div class="label">${label}</div>${main}${edit}`;
+  }
+  function tick() {
+    if (T.phase !== "work" && T.phase !== "brk") return;
+    if (tCheck()) { render(); return; }
+    const t = $("t-time"), b = $("t-bar"); if (!t) return;
+    t.textContent = mmss(leftMs());
+    const total = (T.phase === "brk" ? tcfg.brk : T.workMin) * 60000;
+    b.style.width = Math.min(100, Math.max(0, 100 - (leftMs() / total) * 100)) + "%";
+    document.title = `${mmss(leftMs())} · ${T.phase === "work" ? "Üben" : "Pause"}`;
+  }
+  setInterval(tick, 1000);
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && T.phase === "work" && !T.paused) keepAwake(true); });
+
+  $("timer").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-t]"); if (!b || b.tagName === "SELECT" || b.type === "checkbox") return;
+    const a = b.dataset.t;
+    if (a === "start") tStart();
+    else if (a === "pause") tPause();
+    else if (a === "stop") tStop();
+    else if (a === "reset") { T = { ...T, phase: "idle", round: 0 }; saveT(); document.title = "Üben"; render(); }
+    else if (a === "edit") { tEdit = !tEdit; render(); }
+    else if (a === "help") { tHelp = !tHelp; render(); }
+    else if (a === "work" || a === "brk") { tcfg[a] = Number(b.dataset.v); saveCfg(); render(); }
+  });
+  $("timer").addEventListener("change", (e) => {
+    const t = e.target;
+    if (t.dataset.t === "piece") { T.piece = t.value; saveT(); }
+    if (t.dataset.t === "focus") { tcfg.focus = t.checked; saveCfg(); render(); }
+  });
 
   // ---------- Start ----------
   render();
