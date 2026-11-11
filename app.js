@@ -139,7 +139,7 @@
 
     const ents = days.get(selDay)?.entries || [];
     $("daylog").innerHTML = `<div class="label">${selDay === today ? "Heute" : esc(fmt(selDay))} · ${ents.length ? ents.reduce((a, e) => a + (e.min || 0), 0) + " Min." : "nichts eingetragen"}</div>` +
-      ents.map((e, i) => `<div class="entry"><span class="m">${e.min}′</span><span class="t">${esc(pieces.get(e.piece)?.title || e.title || "Stück")}</span>${confirmIdx === i ? `<button type="button" data-entry-del="${i}" style="color:var(--danger);border-color:var(--danger)">Entfernen?</button>` : `<button type="button" data-entry-ask="${i}" aria-label="Eintrag entfernen">Entfernen</button>`}</div>`).join("");
+      ents.map((e, i) => `<div class="entry"><span class="m">${e.min}′</span><span class="t">${esc(pieces.get(e.piece)?.title || e.title || "Stück")}${e.goals ? `<small class="goal-sum">${e.goals.filter((g) => g.done).length}/${e.goals.length} Ziele${e.goals.length ? ": " + e.goals.map((g) => (g.done ? "✓ " : "○ ") + esc(g.text)).join(" · ") : ""}</small>` : ""}</span>${confirmIdx === i ? `<button type="button" data-entry-del="${i}" style="color:var(--danger);border-color:var(--danger)">Entfernen?</button>` : `<button type="button" data-entry-ask="${i}" aria-label="Eintrag entfernen">Entfernen</button>`}</div>`).join("");
 
     const sel = $("padd-area"); const v = sel.value; const sig = JSON.stringify(areas.map((a) => [a.id, a.name, a.parent]));
     if (sel.dataset.sig !== sig) { sel.innerHTML = areaOpts(v || areas[0]?.id); sel.dataset.sig = sig; if (v) sel.value = v; }
@@ -298,13 +298,21 @@
   const newId = () => "p-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 
   // id = Stück oder null (freies Üben / Einspielen)
-  function logPractice(id, min) {
+  function logPractice(id, min, goals) {
     const p = id ? pieces.get(id) : null; if (id && !p) return;
     const d = todayStr(); const cur = days.get(d) || { date: d, entries: [], total: 0 };
-    const next = { date: d, entries: [...(cur.entries || []), { piece: p ? id : null, title: p ? p.title : "Freies Üben", min, at: new Date().toISOString() }], total: (cur.total || 0) + min };
+    const entry = { piece: p ? id : null, title: p ? p.title : "Freies Üben", min, at: new Date().toISOString() };
+    if (goals && goals.length) entry.goals = goals.map((g) => ({ text: g.text, done: !!g.done }));
+    const next = { date: d, entries: [...(cur.entries || []), entry], total: (cur.total || 0) + min };
     days.set(d, next); saveDay(d, next);
-    if (p) { Object.assign(p, { lastPracticed: d, totalMinutes: (p.totalMinutes || 0) + min }); savePiece(p); }
-    logId = null; selDay = d; render(); toast(`${min} Min. eingetragen${p ? " · " + p.title : ""}`);
+    if (p) {
+      Object.assign(p, { lastPracticed: d, totalMinutes: (p.totalMinutes || 0) + min });
+      const reached = new Set((goals || []).filter((g) => g.done).map((g) => g.text.trim().toLowerCase()));
+      if (reached.size) p.spots = (p.spots || []).map((sp) => (reached.has(sp.text.trim().toLowerCase()) ? { ...sp, done: true } : sp));
+      savePiece(p);
+    }
+    const ok = entry.goals ? ` · ${entry.goals.filter((g) => g.done).length}/${entry.goals.length} Ziele` : "";
+    logId = null; selDay = d; render(); toast(`${min} Min. eingetragen${p ? " · " + p.title : ""}${ok}`);
   }
 
   function removeEntry(day, idx) {
@@ -393,9 +401,9 @@
 
   // ---------- Übe-Timer ----------
   // Zustand wird mit Endzeitpunkt gespeichert, damit der Timer auch nach Hintergrund/Neuladen stimmt.
-  // Phasen: idle → work → brk → ready (→ work …)
+  // Phasen: idle → goals (3 Ziele) → work → brk → ready (→ goals …)
   const tcfg = Object.assign({ work: 30, brk: 10, focus: false, startName: "Üben Start", endName: "Üben Ende" }, pref.get("ueben.timerCfg", {}));
-  let T = Object.assign({ phase: "idle", endsAt: 0, left: 0, paused: false, piece: "", round: 0, workMin: 30 }, pref.get("ueben.timer", {}));
+  let T = Object.assign({ phase: "idle", endsAt: 0, left: 0, paused: false, piece: "", round: 0, workMin: 30, goals: [] }, pref.get("ueben.timer", {}));
   let tEdit = false, tHelp = false, wake = null, actx = null;
   const saveT = () => pref.set("ueben.timer", T), saveCfg = () => pref.set("ueben.timerCfg", tcfg);
   const mmss = (ms) => { const s = Math.max(0, Math.ceil(ms / 1000)); return `${Math.floor(s / 60)}:${pad(s % 60)}`; };
@@ -425,10 +433,28 @@
     location.href = "shortcuts://run-shortcut?name=" + encodeURIComponent(name) + (input != null ? "&input=text&text=" + encodeURIComponent(String(input)) : "");
   }
 
-  function tStart() {
+  // Vorschläge für erreichbare Ziele aus dem Stück
+  function goalIdeas(p) {
+    const out = [];
+    if (p) {
+      for (const sp of (p.spots || []).filter((x) => !x.done)) out.push(sp.text);
+      if (p.tempoTarget && p.tempoCurrent && p.tempoCurrent < p.tempoTarget) out.push(`Tempo ♩ ${p.tempoCurrent} → ${Math.min(p.tempoTarget, p.tempoCurrent + 4)} sauber`);
+      if ((p.stage || 0) >= 2) out.push("Einmal ganz durch ohne Stopp");
+      else out.push("Einen Abschnitt langsam und fehlerfrei");
+      out.push("Schwierigste Stelle 5× hintereinander sauber");
+    } else out.push("Rudiments 10 Min. mit Metronom", "Tonleitern auf Mallets", "Blattspiel: 1 neue Seite");
+    return [...new Set(out)].slice(0, 6);
+  }
+  function tGoals() {
+    // Klick = Nutzergeste: Ton freischalten
     try { actx = actx || new (window.AudioContext || window.webkitAudioContext)(); actx.resume?.(); } catch (e) {}
-    T = { phase: "work", endsAt: Date.now() + tcfg.work * 60000, left: 0, paused: false, piece: T.piece || suggestPiece(), round: (T.phase === "ready" ? T.round : 0) + 1, workMin: tcfg.work };
-    saveT(); keepAwake(true); render();
+    const keep = T.phase === "ready" ? T.round : 0;
+    T = { ...T, phase: "goals", piece: T.piece || suggestPiece(), round: keep, goals: [] }; saveT(); render();
+    setTimeout(() => document.querySelector("[data-goal-in]")?.focus(), 50);
+  }
+  function tStart(goals) {
+    T = { phase: "work", endsAt: Date.now() + tcfg.work * 60000, left: 0, paused: false, piece: T.piece || "", round: (T.round || 0) + 1, workMin: tcfg.work, goals };
+    saveT(); keepAwake(true); document.activeElement?.blur(); render();
     runShortcut(tcfg.startName, tcfg.work);
   }
   function tPause() {
@@ -438,20 +464,21 @@
   }
   function tStop() {
     if (T.phase === "brk") { T = { ...T, phase: "ready", paused: false }; saveT(); keepAwake(false); render(); return; }
-    const done = Math.round((T.workMin * 60000 - leftMs()) / 60000), piece = T.piece || null;
-    T = { ...T, phase: "idle", paused: false, round: 0 }; saveT(); keepAwake(false); document.title = "Üben";
-    if (done >= 5) logPractice(piece, done); else render();
+    if (T.phase === "goals") { T = { ...T, phase: T.round ? "ready" : "idle", goals: [] }; saveT(); render(); return; }
+    const done = Math.round((T.workMin * 60000 - leftMs()) / 60000), piece = T.piece || null, goals = T.goals || [];
+    T = { ...T, phase: "idle", paused: false, round: 0, goals: [] }; saveT(); keepAwake(false); document.title = "Üben";
+    if (done >= 5) logPractice(piece, done, goals); else render();
     runShortcut(tcfg.endName, null);
   }
   // Prüft Phasenwechsel, auch rückwirkend (App war im Hintergrund)
   function tCheck() {
     if (!ready) return false;   // erst wenn die Daten geladen sind (sonst geht der Eintrag verloren)
-    if (T.paused || T.phase === "idle" || T.phase === "ready") return false;
+    if (T.paused || (T.phase !== "work" && T.phase !== "brk")) return false;
     if (Date.now() < T.endsAt) return false;
     if (T.phase === "work") {
-      const piece = T.piece || null, min = T.workMin;
+      const piece = T.piece || null, min = T.workMin, goals = T.goals || [];
       T.phase = "brk"; T.endsAt = T.endsAt + tcfg.brk * 60000; saveT();   // zuerst Phase wechseln, dann eintragen (render ruft tCheck)
-      chime(3); logPractice(piece, min); return true;
+      chime(3); logPractice(piece, min, goals); return true;
     }
     if (T.phase === "brk") { T.phase = "ready"; saveT(); keepAwake(false); chime(2); return true; }
     return false;
@@ -464,14 +491,23 @@
     if (ready && T.piece && !pieces.get(T.piece)) T.piece = "";
     const opts = `<option value="">Freies Üben</option>` + act.map((p) => `<option value="${esc(p._id)}"${p._id === (T.piece || "") ? " selected" : ""}>${esc(p.title)}</option>`).join("");
     const running = T.phase === "work" || T.phase === "brk";
-    const label = { idle: "Übe-Timer", work: `Runde ${T.round} · Üben`, brk: "Pause", ready: `Pause vorbei · ${T.round} Runde${T.round === 1 ? "" : "n"} geschafft` }[T.phase];
+    const label = { idle: "Übe-Timer", goals: "3 erreichbare Ziele für diese Runde", work: `Runde ${T.round} · Üben`, brk: "Pause", ready: `Pause vorbei · ${T.round} Runde${T.round === 1 ? "" : "n"} geschafft` }[T.phase];
     const total = (T.phase === "brk" ? tcfg.brk : T.workMin) * 60000;
     const pct = running ? Math.min(100, Math.max(0, 100 - (leftMs() / total) * 100)) : 0;
     let main;
-    if (running) {
+    const goalList = (T.goals || []).length ? `<ul class="t-goals">${T.goals.map((g, i) => `<li><label><input type="checkbox" data-t="goal" data-i="${i}"${g.done ? " checked" : ""}> <span>${esc(g.text)}</span></label></li>`).join("")}</ul>` : "";
+    if (T.phase === "goals") {
+      const p = pieces.get(T.piece);
+      main = `<div class="t-sub">${esc(p ? p.title : "Freies Üben")} · ${tcfg.work}′. Klein und konkret – was ist in dieser Zeit sicher schaffbar?</div>
+        <div class="form t-goal-form">${[0, 1, 2].map((i) => `<input data-goal-in="${i}" placeholder="Ziel ${i + 1}" autocomplete="off" enterkeyhint="${i < 2 ? "next" : "go"}">`).join("")}</div>
+        <div class="t-ideas"><span class="label">Ideen</span>${goalIdeas(p).map((g) => `<button class="chip" type="button" data-t="idea" data-v="${esc(g)}">${esc(g)}</button>`).join("")}</div>
+        <div class="err" id="t-goal-err" hidden>Bitte alle 3 Ziele ausfüllen.</div>
+        <div class="row"><button class="btn" type="button" data-t="go">Los – ${tcfg.work}′ starten</button><button class="btn ghost" type="button" data-t="stop">Abbrechen</button></div>`;
+    } else if (running) {
       main = `<div class="t-time mono" id="t-time">${mmss(leftMs())}</div>
         <div class="t-bar"><i id="t-bar" style="width:${pct}%"></i></div>
         <div class="t-sub">${T.phase === "work" ? `${esc(pieces.get(T.piece)?.title || "Freies Üben")} · danach ${tcfg.brk}′ Pause` : "Aufstehen, trinken, Hände lockern"}${T.paused ? " · angehalten" : ""}</div>
+        ${T.phase === "work" ? goalList : ""}
         <div class="row"><button class="btn" type="button" data-t="pause">${T.paused ? "Weiter" : "Anhalten"}</button><button class="btn ghost" type="button" data-t="stop">${T.phase === "work" ? "Beenden" : "Pause überspringen"}</button></div>`;
     } else {
       main = `<div class="t-time mono">${tcfg.work}:00</div>
@@ -509,7 +545,13 @@
   $("timer").addEventListener("click", (e) => {
     const b = e.target.closest("[data-t]"); if (!b || b.tagName === "SELECT" || b.type === "checkbox") return;
     const a = b.dataset.t;
-    if (a === "start") tStart();
+    if (a === "start") tGoals();
+    else if (a === "idea") { const ins = [...document.querySelectorAll("[data-goal-in]")]; const free = ins.find((x) => !x.value.trim()); if (free) { free.value = b.dataset.v; b.disabled = true; } }
+    else if (a === "go") {
+      const goals = [...document.querySelectorAll("[data-goal-in]")].map((x) => ({ text: x.value.trim(), done: false }));
+      if (goals.some((g) => !g.text)) { $("t-goal-err").hidden = false; document.querySelector("[data-goal-in]:placeholder-shown")?.focus(); return; }
+      tStart(goals);
+    }
     else if (a === "pause") tPause();
     else if (a === "stop") tStop();
     else if (a === "reset") { T = { ...T, phase: "idle", round: 0 }; saveT(); document.title = "Üben"; render(); }
@@ -517,9 +559,15 @@
     else if (a === "help") { tHelp = !tHelp; render(); }
     else if (a === "work" || a === "brk") { tcfg[a] = Number(b.dataset.v); saveCfg(); render(); }
   });
+  $("timer").addEventListener("keydown", (e) => {
+    const inp = e.target.closest("[data-goal-in]"); if (!inp || e.key !== "Enter") return;
+    e.preventDefault(); const i = Number(inp.dataset.goalIn);
+    if (i < 2) document.querySelector(`[data-goal-in="${i + 1}"]`)?.focus(); else document.querySelector('[data-t="go"]')?.click();
+  });
   $("timer").addEventListener("change", (e) => {
     const t = e.target;
     if (t.dataset.t === "piece") { T.piece = t.value; saveT(); }
+    if (t.dataset.t === "goal") { const g = T.goals[Number(t.dataset.i)]; if (g) { g.done = t.checked; saveT(); } }
     if (t.dataset.t === "focus") { tcfg.focus = t.checked; saveCfg(); render(); }
   });
 
