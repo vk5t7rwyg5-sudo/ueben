@@ -295,6 +295,9 @@ body{padding-block:4px 24px}
 body.v-brief .plan-bar,body.v-brief #allday,body.v-brief .tl-scroll,body.v-brief #hint,body.v-brief .side{display:none!important}
 body.v-brief .app{grid-template-columns:minmax(0,1fr);grid-template-areas:"head" "plan";max-width:860px}
 body.v-plan #brief{display:none}
+.req{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:12px 14px;margin-bottom:14px}
+.req span{flex:1;min-width:200px;font-size:13.5px;color:var(--muted);line-height:1.45}
+.req span b{color:var(--fg);font-weight:600}
 </style>
 
 <div class="app">
@@ -549,10 +552,23 @@ function briefItem(it, i, src){
     <div class="acts2">${planned ? '<span class="ok-tag">eingeplant</span>' : `<button class="mini-act" type="button" data-act="bplan">Einplanen${it.dur ? ' · ' + esc(durTxt(it.dur)) : ''}</button>`}</div>
   </div>`;
 }
+// Manuell anfordern: Datensatz meta:briefRequest {requestedAt, date, doneAt?}; die geplante Aufgabe «briefing-auf-abruf» prüft alle 15 Min.
+const briefReq = () => (ST && ST.recs.get('meta:briefRequest')) || {};
+const briefPending = r => !!r.requestedAt && (!r.doneAt || r.doneAt < r.requestedAt);
+const hhmm = x => new Date(x).toLocaleTimeString('de-CH', {hour:'2-digit', minute:'2-digit'});
+function reqBar(){
+  if (VIEW !== 'brief' || !ST) return '';
+  const r = briefReq();
+  if (briefPending(r)) return `<div class="req"><span><b>Angefordert um ${hhmm(r.requestedAt)}</b> für ${esc(fmtShort(r.date || S.key))} – Claude erstellt das Briefing in den nächsten 15 Minuten.</span><button class="btn ghost" type="button" id="briefCancel">Abbrechen</button></div>`;
+  const last = r.doneAt && r.status === 'erstellt' ? `Zuletzt auf Anfrage erstellt um ${hhmm(r.doneAt)}.`
+    : r.doneAt && r.status === 'fehlgeschlagen' ? `<b>Letzter Versuch fehlgeschlagen</b> (${hhmm(r.doneAt)})${r.error ? ': ' + esc(r.error) : ''}.`
+    : 'Mails, Kalender und Aufgaben neu auswerten.';
+  return `<div class="req"><span>${last}</span><button class="btn primary" type="button" id="briefReqBtn">Briefing jetzt erstellen</button></div>`;
+}
 function renderBrief(){
   const el = $('brief'), b = S.briefs[S.key];
   if (!b) {
-    el.innerHTML = S.key === todayKey() ? '<p class="note" style="margin:0 0 12px">Das Morgenbriefing für heute ist noch nicht da – es wird werktags früh automatisch erstellt.</p>' : '';
+    el.innerHTML = reqBar() + (S.key === todayKey() ? '<p class="note" style="margin:0 0 12px">Das Morgenbriefing für heute ist noch nicht da – es wird werktags früh automatisch erstellt.</p>' : '');
     return;
   }
   const d = day(), open = VIEW === 'brief' || !(briefClosed[S.key] ?? (d.boxes.length > 0 && !!d.briefApplied));
@@ -578,7 +594,7 @@ function renderBrief(){
   if (shared.length) h += `<div><h3>Zuhause & Sarina</h3><div class="pills">${shared.map(e => `<span>${e.ad ? 'ganztägig' : hm(e.s)} <b>${esc(e.t)}</b></span>`).join('')}</div></div>`;
   if ((b.upcoming||[]).length) h += `<div><h3>Demnächst</h3><div class="pills">${b.upcoming.map(u => `<span>${esc(/^\d{4}-\d{2}-\d{2}$/.test(u.d) ? fmtShort(u.d) : u.d)} <b>${esc(u.t)}</b></span>`).join('')}</div></div>`;
   if (b.generatedAt) h += `<div class="brief-meta">Text erstellt ${esc(new Date(b.generatedAt).toLocaleString('de-CH',{weekday:'short',hour:'2-digit',minute:'2-digit'}))} · Tagesteile und Vorschlag folgen deinem Raster</div>`;
-  el.innerHTML = h + '</div></div>';
+  el.innerHTML = reqBar() + h + '</div></div>';
 }
 // Vorschlag an das aktuelle Raster anpassen: belegte Zeiten überspringen, sonst nächste freie Lücke gleicher Länge
 const PLAN_FROM = 7*60 + 30, PLAN_TO = 21*60 + 30;
@@ -636,6 +652,13 @@ function applyBrief(){
 $('brief').addEventListener('click', e => {
   if (e.target.closest('a')) return;
   if (e.target.id === 'briefApply') { applyBrief(); return; }
+  if (e.target.id === 'briefReqBtn' && ST) {
+    ST.set('meta:briefRequest', {requestedAt: new Date().toISOString(), date: S.key}); notify(); render();
+    toast('Angefordert – das Briefing kommt in den nächsten 15 Minuten'); return;
+  }
+  if (e.target.id === 'briefCancel' && ST) {
+    ST.set('meta:briefRequest', Object.assign({}, briefReq(), {doneAt: new Date().toISOString(), status: 'abgebrochen'})); notify(); render(); return;
+  }
   const pb = e.target.closest('[data-act=bplan]');
   if (pb) {
     const row = pb.closest('.bitem'), b = S.briefs[S.key]; if (!b) return;
