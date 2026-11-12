@@ -419,7 +419,8 @@ const KINDS = [
   {id:'freizeit', label:'Freizeit'},
   {id:'pause', label:'Pause'}
 ];
-const DAY_START = 6*60, DAY_END = 23*60, PPM = 1.2, SNAP = 15;
+const DAY_START = 6*60, DAY_END = 23*60, SNAP = 15;
+let PPM = 1.2; // Pixel pro Minute – wird an die verfügbare Höhe angepasst, damit der ganze Tag sichtbar ist
 const WD = ['Sonntag','Montag','Dienstag','Mittwoch','Donnerstag','Freitag','Samstag'];
 const MON = ['Januar','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'];
 const CHECK = '<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 6.3 5 8.6 9.6 3.6"/></svg>';
@@ -746,7 +747,19 @@ function renderAllday(){
   el.hidden = !list.length;
   el.innerHTML = list.length ? '<b>Ganztägig</b>' + list.map(e => `<span>${esc(e.t)}</span>`).join('') : '';
 }
+// Ganzen Tag ohne Scrollen zeigen: Raster füllt die Fensterhöhe, Massstab passt sich an
+function fitDay(){
+  const sc = $('tlScroll'); if (!sc || VIEW !== 'plan') return;
+  const mins = DAY_END - DAY_START, desk = matchMedia('(min-width:900px)').matches;
+  const top = sc.getBoundingClientRect().top + window.scrollY;
+  const hintH = ($('hint') ? $('hint').offsetHeight + 12 : 0);
+  const avail = Math.max(320, window.innerHeight - top - hintH - 8);
+  if (desk) { sc.style.height = avail + 'px'; sc.style.minHeight = '0'; }
+  PPM = Math.max(desk ? 0.45 : 0.6, Math.min(1.2, (avail - 26) / mins));
+}
+let fitT; window.addEventListener('resize', () => { clearTimeout(fitT); fitT = setTimeout(() => { if (!S.dragging && !S.editing) renderGrid(); }, 120); });
 function renderGrid(){
+  fitDay();
   renderAllday();
   const area = $('area'), hours = $('hours');
   const H = (DAY_END - DAY_START) * PPM;
@@ -758,9 +771,9 @@ function renderGrid(){
   const d = day(), L = lanes(d.boxes);
   let html = '';
   for (const b of d.boxes) {
-    const l = L.get(b.id), len = b.end - b.start, short = len < 40;
+    const l = L.get(b.id), len = b.end - b.start, short = len * PPM < 46;
     html += `<div class="box k-${b.kind}${b.done?' done':''}${short?' short':''}" data-id="${b.id}" tabindex="0"
-      style="top:${(b.start-DAY_START)*PPM+1}px;height:${Math.max(len*PPM-2,16)}px;left:calc(${l.i/l.n*100}% + 3px);width:calc(${100/l.n}% - 6px)">
+      style="top:${(b.start-DAY_START)*PPM+1}px;height:${Math.max(len*PPM-2,14)}px;left:calc(${l.i/l.n*100}% + 3px);width:calc(${100/l.n}% - 6px)">
       <div class="row1"><button class="chk" type="button" aria-label="Als erledigt markieren">${CHECK}</button><div class="t">${esc(b.title)||'Ohne Titel'}</div>${b.tt?'<span class="tt" title="Aus TimeTree">TT</span>':''}</div>
       <div class="tm tnum">${hm(b.start)}–${hm(b.end)}${short?'':' · '+durTxt(len)}</div>
       <div class="rzt"></div><div class="rz"></div><button class="x" type="button" aria-label="Timebox löschen" title="Löschen">✕</button></div>`;
