@@ -560,6 +560,7 @@ let briefClosed = {}; try { briefClosed = JSON.parse(localStorage.getItem(LS_BC)
 // Rückverbindung zur Aufgabenliste: erledigte (oder gelöschte) Aufgaben verschwinden aus dem Briefing
 function briefDone(it){
   if (!ST || !it) return false;
+  if (Array.isArray(it.taskIds) && it.taskIds.length) return it.taskIds.every(id => { const r = ST.recs.get('task:' + id); return !r || r.status === 'done'; });
   if (it.taskId) { const r = ST.recs.get('task:' + it.taskId); return !r || r.status === 'done'; }
   const t = String(it.title || '').trim().toLowerCase(); if (!t) return false;
   let open = false, done = false;
