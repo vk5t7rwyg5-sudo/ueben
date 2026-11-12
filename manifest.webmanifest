@@ -1,7 +1,7 @@
 {
-  "name": "Üben",
-  "short_name": "Üben",
-  "description": "Repertoire, Termine und Übeplan.",
+  "name": "Zentrale",
+  "short_name": "Zentrale",
+  "description": "Aufgaben und Üben.",
   "lang": "de-CH",
   "start_url": "./",
   "scope": "./",

@@ -95,7 +95,6 @@
     if (document.activeElement?.closest?.(".editor, .form")) { pending = true; return; }
     pending = false;
     const now = new Date();
-    $("eyebrow").textContent = `${WD[now.getDay()]} ${now.getDate()}. ${MON[now.getMonth()]}`;
     const week = weekDays(), today = todayStr();
     if (selDay !== today && !week.includes(selDay)) selDay = today;
     const weekTotal = week.reduce((a, d) => a + minutesOn(d), 0);
@@ -277,6 +276,8 @@
     const out = { app: "ueben", version: 1, exportedAt: new Date().toISOString(), areas, pieces: {}, practice: {} };
     for (const [id, p] of pieces) { const { _id, ...doc } = p; out.pieces[id] = doc; }
     for (const [d, doc] of days) out.practice[d] = doc;
+    out.tasks = {}; for (const [k, v] of Store.recs) if (k.startsWith("task:")) out.tasks[k.slice(5)] = v;
+    out.taskAreas = Store.recs.get("taskAreas")?.list || null;
     const a = document.createElement("a");
     a.href = URL.createObjectURL(new Blob([JSON.stringify(out, null, 2)], { type: "application/json" }));
     a.download = `ueben-sicherung-${todayStr()}.json`; document.body.appendChild(a); a.click(); a.remove();
@@ -285,12 +286,14 @@
   async function importData(file) {
     try {
       const j = JSON.parse(await file.text());
-      if (!j || typeof j !== "object" || (!j.pieces && !j.practice)) throw new Error("format");
+      if (!j || typeof j !== "object" || (!j.pieces && !j.practice && !j.tasks)) throw new Error("format");
+      if (Array.isArray(j.taskAreas) && j.taskAreas.length) await Store.set("taskAreas", { list: j.taskAreas });
+      let k = 0; for (const [id, doc] of Object.entries(j.tasks || {})) if (doc && doc.title) { await Store.set("task:" + id, doc); k++; }
       if (Array.isArray(j.areas) && j.areas.length) await Store.set("areas", { list: j.areas.filter((a) => a && a.id && a.name) });
       let n = 0, m = 0;
       for (const [id, doc] of Object.entries(j.pieces || {})) if (doc && doc.title) { await Store.set("piece:" + id, doc); n++; }
       for (const [d, doc] of Object.entries(j.practice || {})) if (/^\d{4}-\d{2}-\d{2}$/.test(d) && doc) { await Store.set("day:" + d, doc); m++; }
-      load(); render(); toast(`${n} Stücke und ${m} Übetage übernommen`);
+      load(); render(); toast(`${k} Aufgaben, ${n} Stücke und ${m} Übetage übernommen`); window.dispatchEvent(new Event("store:change"));
     } catch (e) { toast("Diese Datei konnte nicht gelesen werden."); }
   }
 
@@ -466,7 +469,7 @@
     if (T.phase === "brk") { T = { ...T, phase: "ready", paused: false }; saveT(); keepAwake(false); render(); return; }
     if (T.phase === "goals") { T = { ...T, phase: T.round ? "ready" : "idle", goals: [] }; saveT(); render(); return; }
     const done = Math.round((T.workMin * 60000 - leftMs()) / 60000), piece = T.piece || null, goals = T.goals || [];
-    T = { ...T, phase: "idle", paused: false, round: 0, goals: [] }; saveT(); keepAwake(false); document.title = "Üben";
+    T = { ...T, phase: "idle", paused: false, round: 0, goals: [] }; saveT(); keepAwake(false); document.title = "Zentrale";
     if (done >= 5) logPractice(piece, done, goals); else render();
     runShortcut(tcfg.endName, null);
   }
@@ -526,7 +529,7 @@
           <li><b>Kurzbefehl «${esc(tcfg.endName)}»:</b> Aktion <i>Fokus festlegen</i>: Üben <b>ausschalten</b>.</li>
           <li>Beim Start öffnet die App kurz «Kurzbefehle». Mit «◀ Üben» oben links kommst du zurück.</li></ol>` : ""}
       </div>` : "";
-    if (!running) document.title = "Üben";
+    if (!running) document.title = "Zentrale";
     box.className = "timer" +(T.phase === "work" ? " is-work" : T.phase === "brk" ? " is-brk" : "");
     box.innerHTML = `<div class="label">${label}</div>${main}${edit}`;
   }
@@ -554,7 +557,7 @@
     }
     else if (a === "pause") tPause();
     else if (a === "stop") tStop();
-    else if (a === "reset") { T = { ...T, phase: "idle", round: 0 }; saveT(); document.title = "Üben"; render(); }
+    else if (a === "reset") { T = { ...T, phase: "idle", round: 0 }; saveT(); document.title = "Zentrale"; render(); }
     else if (a === "edit") { tEdit = !tEdit; render(); }
     else if (a === "help") { tHelp = !tHelp; render(); }
     else if (a === "work" || a === "brk") { tcfg[a] = Number(b.dataset.v); saveCfg(); render(); }
@@ -574,9 +577,9 @@
   // ---------- Start ----------
   render();
   Store.start({
-    onChange: () => { load(); render(); },
+    onChange: () => { load(); render(); window.dispatchEvent(new Event("store:change")); },
     onStatus: (t) => { $("sync").textContent = t; }
-  }).then(() => { load(); ready = true; render(); })
+  }).then(() => { load(); ready = true; render(); window.dispatchEvent(new Event("store:ready")); })
     .catch(() => { ready = true; $("sync").textContent = "Speicher nicht verfügbar"; render(); });
 
   if ("serviceWorker" in navigator && location.protocol === "https:") {

@@ -3,12 +3,12 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>Üben</title>
+<title>Zentrale</title>
 <meta name="theme-color" content="#f5f6f5" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#101513" media="(prefers-color-scheme: dark)">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-title" content="Üben">
+<meta name="apple-mobile-web-app-title" content="Zentrale">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icons/icon-180.png">
@@ -23,7 +23,6 @@
   <div class="topbar">
     <span class="syncline" id="sync">Wird geladen …</span>
     <div class="links">
-      <a class="icon-btn" href="https://claude.ai/artifact/9jAYFcEy4z6ftvj57MG67e" target="_blank" rel="noopener">Aufgaben ↗</a>
       <button class="icon-btn" type="button" id="gear" aria-pressed="false" aria-controls="settings">Einstellungen</button>
     </div>
   </div>
@@ -31,14 +30,55 @@
   <header>
     <div>
       <div class="label" id="eyebrow">&nbsp;</div>
-      <h1>Üben</h1>
+      <h1 id="title">Aufgaben</h1>
     </div>
-    <div class="stats" id="pstats" aria-live="polite"></div>
+    <div class="stats" id="stats" aria-live="polite"></div>
+    <div class="stats" id="pstats" aria-live="polite" hidden></div>
   </header>
+
+  <nav class="tabs" aria-label="Ansicht">
+    <a class="tab" href="#aufgaben">Aufgaben</a>
+    <a class="tab" href="#ueben">Üben</a>
+  </nav>
 
   <section class="settings" id="settings" hidden aria-label="Einstellungen"></section>
 
-  <div class="view" id="view-ueben">
+  <div class="view" id="view-tasks">
+    <section aria-label="Neue Aufgabe">
+      <form class="capture" id="capture" autocomplete="off">
+        <input type="text" id="new-title" placeholder="Neue Aufgabe …" aria-label="Titel der neuen Aufgabe" enterkeyhint="done" required>
+        <select id="new-area" aria-label="Bereich"></select>
+        <input type="date" id="new-due" aria-label="Datum (optional)">
+        <button class="btn" type="submit">Hinzufügen</button>
+      </form>
+      <div class="hint" id="hint">Ohne Bereich landet die Aufgabe in der Inbox, Claude ordnet sie zu. Ohne Datum kommt sie in die Langzeitliste.</div>
+    </section>
+
+    <nav class="filters" id="filters" aria-label="Nach Bereich filtern"></nav>
+    <p class="status" id="status">Wird geladen …</p>
+
+    <section class="inbox" id="inbox" hidden>
+      <div class="col-head"><h2>Inbox</h2><span class="sub">Noch ohne Bereich · Claude sortiert beim nächsten Durchlauf</span></div>
+      <div class="list" id="inbox-list"></div>
+    </section>
+
+    <div class="columns">
+      <section aria-labelledby="mid-h">
+        <div class="col-head"><h2 id="mid-h">Mittelfristig</h2><span class="sub" id="mid-count">mit Datum</span></div>
+        <div id="mid"></div>
+      </section>
+      <section aria-labelledby="long-h">
+        <div class="col-head"><h2 id="long-h">Langzeit</h2><span class="sub" id="long-count">ohne Datum</span></div>
+        <div id="long"></div>
+      </section>
+    </div>
+
+    <section id="done-wrap" hidden>
+      <details class="done-today"><summary id="done-sum"></summary><div class="list" id="done-list"></div></details>
+    </section>
+  </div>
+
+  <div class="view" id="view-ueben" hidden>
     <section class="timer" id="timer" aria-label="Übe-Timer"></section>
     <section class="today-plan" aria-label="Heute üben">
       <div>
@@ -81,6 +121,7 @@
 </div>
 <input type="file" id="import-file" accept="application/json,.json" hidden>
 <script src="sync.js"></script>
+<script src="tasks.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
