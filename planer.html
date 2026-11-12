@@ -292,12 +292,22 @@ button{cursor:pointer}
 @media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--bg:#101513;--panel:#161c1a;--panel-2:#1d2522;--line:#24302c;--line-strong:#34413c;--fg:#e5ebe8;--muted:#8d9894;--accent:#7cc0ae;--accent-fg:#101513}}
 body{padding-block:4px 24px}
 .date-big{font-size:clamp(24px,4vw,36px)}
-body.v-brief .plan-bar,body.v-brief #allday,body.v-brief .tl-scroll,body.v-brief #hint,body.v-brief .side{display:none!important}
+body.v-brief .plan-bar,body.v-brief #allday,body.v-brief .tl-scroll,body.v-brief #hint,body.v-brief .side,body.v-brief .prio-slot-mobile{display:none!important}
 body.v-brief .app{grid-template-columns:minmax(0,1fr);grid-template-areas:"head" "plan";max-width:860px}
 body.v-plan #brief{display:none}
 .req{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:12px 14px;margin-bottom:14px}
 .req span{flex:1;min-width:200px;font-size:13.5px;color:var(--muted);line-height:1.45}
 .req span b{color:var(--fg);font-weight:600}
+body.embedded{padding-left:0;padding-right:0}
+@media (max-width:640px){
+  body.embedded .brief{border-radius:12px}
+  .brief-head{padding:14px 14px 10px}
+  .brief-body{padding:0 14px 14px}
+  .bitem{flex-wrap:wrap;gap:6px 10px}
+  .bitem .tx{flex:1 1 calc(100% - 60px)}
+  .bitem .acts2{flex-basis:100%;padding-left:52px}
+  .bitem .acts2 .mini-act{padding:4px 0;color:var(--accent)}
+}
 </style>
 
 <div class="app">
@@ -392,6 +402,7 @@ body.v-plan #brief{display:none}
 (() => {
 const VIEW = new URLSearchParams(location.search).get('v') === 'brief' ? 'brief' : 'plan';
 document.body.classList.add('v-' + VIEW);
+if (window.parent !== window) document.body.classList.add('embedded');
 const P = window.parent !== window ? window.parent : null;
 const ST = P && P.Store ? P.Store : null;
 const notify = () => { try { P && P.dispatchEvent(new CustomEvent('store:change', {detail: {from: VIEW}})); } catch(_) {} };
@@ -428,6 +439,14 @@ const uid = () => Math.random().toString(36).slice(2,10);
 const durTxt = m => m < 60 ? `${m} min` : (m%60 ? `${Math.floor(m/60)} h ${m%60} min` : `${m/60} h`);
 const emptyDay = () => ({boxes:[], prio:[{t:'',d:false},{t:'',d:false},{t:'',d:false}], dump:[]});
 const clone = o => JSON.parse(JSON.stringify(o));
+function durMin(v){
+  if (typeof v === 'number') return v > 0 && v < 600 ? Math.round(v) : null;
+  const x = String(v || '').toLowerCase().split(/[–-]/)[0];
+  const h = x.match(/(\d+(?:[.,]\d+)?)\s*h/), m = x.match(/(\d+)\s*(?:m|min)/), n = x.match(/^\s*(\d+)\s*$/);
+  let t = (h ? parseFloat(h[1].replace(',', '.')) * 60 : 0) + (m ? +m[1] : 0) + (!h && !m && n ? +n[1] : 0);
+  if (h && !m) { const rest = x.split('h')[1]; const r = rest && rest.match(/(\d+)/); if (r) t += +r[1]; }
+  return t > 0 && t < 600 ? Math.round(t / 5) * 5 : null;
+}
 
 // ---------- State ----------
 const S = {
@@ -549,7 +568,7 @@ function briefItem(it, i, src){
   return `<div class="bitem${planned?' planned':''}" data-src="${src}" data-i="${i}">
     <span class="src${src==='todo'?' td':''}">${src==='mail'?'MAIL':'TODO'}</span>
     <div class="tx"><b>${esc(it.title)}</b><span>${esc(it.detail||'')}</span>${due||links ? `<span>${[due, links].filter(Boolean).join(' · ')}</span>` : ''}</div>
-    <div class="acts2">${planned ? '<span class="ok-tag">eingeplant</span>' : `<button class="mini-act" type="button" data-act="bplan">Einplanen${it.dur ? ' · ' + esc(durTxt(it.dur)) : ''}</button>`}</div>
+    <div class="acts2">${planned ? '<span class="ok-tag">eingeplant</span>' : `<button class="mini-act" type="button" data-act="bplan">Einplanen${durMin(it.dur) ? ' · ' + esc(durTxt(durMin(it.dur))) : ''}</button>`}</div>
   </div>`;
 }
 // Manuell anfordern: Datensatz meta:briefRequest {requestedAt, date, doneAt?}; die geplante Aufgabe «briefing-auf-abruf» prüft alle 15 Min.
@@ -663,7 +682,7 @@ $('brief').addEventListener('click', e => {
   if (pb) {
     const row = pb.closest('.bitem'), b = S.briefs[S.key]; if (!b) return;
     const it = (row.dataset.src === 'mail' ? b.mail : b.todo)[+row.dataset.i]; if (!it) return;
-    planItem(it.title, Object.assign({kind: it.kind || 'fokus', note: it.detail || ''}, it.taskId ? {taskId: it.taskId} : {}), it.dur || 30);
+    planItem(it.title, Object.assign({kind: it.kind || 'fokus', note: it.detail || ''}, it.taskId ? {taskId: it.taskId} : {}), durMin(it.dur) || 30);
     return;
   }
   if (e.target.closest('#briefHead')) {
