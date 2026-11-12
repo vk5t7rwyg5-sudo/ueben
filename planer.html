@@ -557,6 +557,15 @@ function render(){
 // Dokument "brief-YYYY-MM-DD", geschrieben vom geplanten Morgenlauf (Gmail + Todoist + TimeTree)
 const LS_BC = 'tbx-brief-closed';
 let briefClosed = {}; try { briefClosed = JSON.parse(localStorage.getItem(LS_BC) || '{}') || {}; } catch(e) {}
+// Rückverbindung zur Aufgabenliste: erledigte (oder gelöschte) Aufgaben verschwinden aus dem Briefing
+function briefDone(it){
+  if (!ST || !it) return false;
+  if (it.taskId) { const r = ST.recs.get('task:' + it.taskId); return !r || r.status === 'done'; }
+  const t = String(it.title || '').trim().toLowerCase(); if (!t) return false;
+  let open = false, done = false;
+  for (const [k, v] of ST.recs) if (k.startsWith('task:') && v && String(v.title || '').trim().toLowerCase() === t) { if (v.status === 'done') done = true; else open = true; }
+  return done && !open;
+}
 const briefPlanned = it => day().boxes.some(b => (it.taskId && b.taskId === it.taskId) || b.title.trim().toLowerCase() === String(it.title||'').trim().toLowerCase());
 function briefItem(it, i, src){
   const planned = briefPlanned(it);
@@ -606,10 +615,14 @@ function renderBrief(){
           + (moved ? ` ${moved} wegen deiner Änderungen im Raster verschoben.` : '')
           + (skipped ? ` ${skipped} passt heute nicht mehr hinein und bleibt in der Aufgabenliste.` : '')
         : 'Der Vorschlag passt nicht mehr in dein Raster – die Aufgaben bleiben in der Liste.')
-      : 'Der Vorschlag aus dem Briefing ist im Raster.'}</p>
+      : 'Alles aus dem Vorschlag ist eingeplant oder erledigt.'}</p>
     ${ok.length ? '<button class="btn primary" type="button" id="briefApply">Tag so planen</button>' : ''}</div>`;
-  if ((b.mail||[]).length) h += `<div><h3>Aus deinen Mails <small>${b.mail.length} neu in der App</small></h3>${b.mail.map((it,i) => briefItem(it,i,'mail')).join('')}</div>`;
-  if ((b.todo||[]).length) h += `<div><h3>Aus deinen Aufgaben</h3>${b.todo.map((it,i) => briefItem(it,i,'todo')).join('')}</div>`;
+  const openMail = (b.mail||[]).map((it,i) => [it,i]).filter(([it]) => !briefDone(it));
+  const openTodo = (b.todo||[]).map((it,i) => [it,i]).filter(([it]) => !briefDone(it));
+  const gone = (b.mail||[]).length + (b.todo||[]).length - openMail.length - openTodo.length;
+  if (openMail.length) h += `<div><h3>Aus deinen Mails <small>${openMail.length} offen</small></h3>${openMail.map(([it,i]) => briefItem(it,i,'mail')).join('')}</div>`;
+  if (openTodo.length) h += `<div><h3>Aus deinen Aufgaben</h3>${openTodo.map(([it,i]) => briefItem(it,i,'todo')).join('')}</div>`;
+  if (gone) h += `<p class="note" style="margin:0">${gone} ${gone === 1 ? 'Aufgabe' : 'Aufgaben'} aus dem Briefing schon erledigt ✓</p>`;
   if (shared.length) h += `<div><h3>Zuhause & Sarina</h3><div class="pills">${shared.map(e => `<span>${e.ad ? 'ganztägig' : hm(e.s)} <b>${esc(e.t)}</b></span>`).join('')}</div></div>`;
   if ((b.upcoming||[]).length) h += `<div><h3>Demnächst</h3><div class="pills">${b.upcoming.map(u => `<span>${esc(/^\d{4}-\d{2}-\d{2}$/.test(u.d) ? fmtShort(u.d) : u.d)} <b>${esc(u.t)}</b></span>`).join('')}</div></div>`;
   if (b.generatedAt) h += `<div class="brief-meta">Text erstellt ${esc(new Date(b.generatedAt).toLocaleString('de-CH',{weekday:'short',hour:'2-digit',minute:'2-digit'}))} · Tagesteile und Vorschlag folgen deinem Raster</div>`;
@@ -621,7 +634,7 @@ function fitPlan(b){
   const busy = day().boxes.map(x => [x.start, x.end]), out = [];
   const free = (s, e) => s >= PLAN_FROM && e <= PLAN_TO && !busy.some(([a, z]) => a < e && z > s);
   for (const p of (b.plan || [])) {
-    if (briefPlanned(p) || typeof p.start !== 'number' || typeof p.end !== 'number') continue;
+    if (briefPlanned(p) || briefDone(p) || typeof p.start !== 'number' || typeof p.end !== 'number') continue;
     const len = Math.max(p.end - p.start, SNAP);
     let s = free(p.start, p.start + len) ? p.start : null;
     for (let t = Math.ceil(p.start/SNAP)*SNAP; s == null && t + len <= PLAN_TO; t += SNAP) if (free(t, t + len)) s = t;

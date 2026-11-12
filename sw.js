@@ -1,5 +1,5 @@
 // Service Worker: hält die App offline verfügbar. Daten liegen in IndexedDB, nicht hier.
-const CACHE = "ueben-v8";
+const CACHE = "ueben-v9";
 const SHELL = ["./", "index.html", "app.css", "app.js", "tasks.js", "sync.js", "planer.html", "manifest.webmanifest", "icons/icon-180.png", "icons/icon-192.png", "icons/icon-512.png"];
 self.addEventListener("install", (e) => { e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL.map((u) => new Request(u, { cache: "reload" })))).then(() => self.skipWaiting())); });
 self.addEventListener("activate", (e) => { e.waitUntil(caches.keys().then((ks) => Promise.all(ks.filter((k) => k !== CACHE).map((k) => caches.delete(k)))).then(() => self.clients.claim())); });
