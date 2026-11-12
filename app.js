@@ -579,7 +579,7 @@
   Store.start({
     onChange: () => { load(); render(); window.dispatchEvent(new Event("store:change")); },
     onStatus: (t) => { $("sync").textContent = t; }
-  }).then(() => { load(); ready = true; render(); window.dispatchEvent(new Event("store:ready")); })
+  }).then(() => { load(); ready = true; render(); window.__storeReady = true; window.dispatchEvent(new Event("store:ready")); })
     .catch(() => { ready = true; $("sync").textContent = "Speicher nicht verfügbar"; render(); });
 
   if ("serviceWorker" in navigator && location.protocol === "https:") {

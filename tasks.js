@@ -23,17 +23,31 @@
   let collapsed = store.get("aufgaben.collapsed", {});
 
   // ---------- Reiter ----------
+  const TABS = { briefing: "Briefing", planer: "Planer", aufgaben: "Aufgaben", ueben: "Üben" };
+  const VIEWS = { briefing: "view-briefing", planer: "view-planer", aufgaben: "view-tasks", ueben: "view-ueben" };
+  function fitFrames() {
+    document.querySelectorAll(".view:not([hidden]) .frame").forEach((f) => {
+      const top = f.getBoundingClientRect().top + window.scrollY;
+      f.style.height = Math.max(420, window.innerHeight - top - 4) + "px";
+    });
+  }
   function route() {
-    let tab = location.hash === "#ueben" ? "ueben" : location.hash === "#aufgaben" || location.hash === "#neu" ? "aufgaben" : store.get("app.tab", "aufgaben");
+    const h = location.hash.slice(1);
+    let tab = h === "neu" ? "aufgaben" : TABS[h] ? h : store.get("app.tab", "aufgaben");
+    if (!TABS[tab]) tab = "aufgaben";
     store.set("app.tab", tab);
-    const u = tab === "ueben";
-    $("view-tasks").hidden = u; $("view-ueben").hidden = !u;
-    $("stats").hidden = u; $("pstats").hidden = !u;
-    $("title").textContent = u ? "Üben" : "Aufgaben";
+    for (const [k, id] of Object.entries(VIEWS)) $(id).hidden = k !== tab;
+    const frame = tab === "briefing" || tab === "planer";
+    document.body.classList.toggle("framed", frame);
+    $("stats").hidden = tab !== "aufgaben"; $("pstats").hidden = tab !== "ueben";
+    $("title").textContent = TABS[tab];
     document.querySelectorAll(".tab").forEach((a) => { if (a.getAttribute("href") === "#" + tab) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current"); });
-    if (location.hash === "#neu") { history.replaceState(null, "", "#aufgaben"); setTimeout(() => $("new-title").focus(), 80); }
+    if (frame) { const f = $(VIEWS[tab]).querySelector(".frame"); if (!f.src) f.src = f.dataset.src; window.scrollTo(0, 0); requestAnimationFrame(fitFrames); setTimeout(fitFrames, 120); }
+    if (h === "neu") { history.replaceState(null, "", "#aufgaben"); setTimeout(() => $("new-title").focus(), 80); }
   }
   window.addEventListener("hashchange", route);
+  window.addEventListener("resize", fitFrames);
+  document.querySelectorAll(".frame").forEach((f) => f.addEventListener("load", fitFrames));
 
   // ---------- Daten ----------
   function load() {
@@ -42,7 +56,8 @@
     areas = (a && a.list && a.list.length ? a.list : FALLBACK_AREAS).slice().sort((x, y) => (x.order ?? 99) - (y.order ?? 99));
     for (const [k, v] of Store.recs) if (k.startsWith("task:")) tasks.set(k.slice(5), { ...v, _id: k.slice(5) });
   }
-  const saveTask = (t) => { const { _id, ...doc } = t; Store.set("task:" + _id, doc); };
+  const changed = () => window.dispatchEvent(new CustomEvent("store:change", { detail: { from: "tasks" } }));
+  const saveTask = (t) => { const { _id, ...doc } = t; Store.set("task:" + _id, doc); changed(); };
 
   // ---------- Datum ----------
   const pad = (n) => String(n).padStart(2, "0");
@@ -274,7 +289,7 @@
     const del = e.target.closest("[data-delete]");
     if (del) {
       if (!del.classList.contains("armed")) { del.classList.add("armed"); del.textContent = "Wirklich löschen?"; return; }
-      const id = del.dataset.delete; tasks.delete(id); Store.set("task:" + id, null); openId = null; document.activeElement?.blur(); render();
+      const id = del.dataset.delete; tasks.delete(id); Store.set("task:" + id, null); changed(); openId = null; document.activeElement?.blur(); render();
     }
   });
   view.addEventListener("change", (e) => {
@@ -295,7 +310,7 @@
   // ---------- Start ----------
   route(); render();
   window.addEventListener("store:ready", () => { load(); loaded = true; render(); });
-  window.addEventListener("store:change", () => { load(); render(); });
+  window.addEventListener("store:change", (e) => { if (e.detail && e.detail.from === "tasks") return; load(); render(); });
   document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") render(); });
   setInterval(() => { if (!openId) render(); }, 5 * 60 * 1000); // Tageswechsel
 })();

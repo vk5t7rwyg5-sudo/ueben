@@ -166,3 +166,5 @@ const Store = (() => {
 
   return { start, set, recs, sync: () => soon(0), register, login, recover, logout, account: () => (acc ? acc.email : null) };
 })();
+
+window.Store = Store; // für eingebettete Reiter (planer.html)

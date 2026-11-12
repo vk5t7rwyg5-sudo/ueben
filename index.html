@@ -37,11 +37,16 @@
   </header>
 
   <nav class="tabs" aria-label="Ansicht">
+    <a class="tab" href="#briefing">Briefing</a>
+    <a class="tab" href="#planer">Planer</a>
     <a class="tab" href="#aufgaben">Aufgaben</a>
     <a class="tab" href="#ueben">Üben</a>
   </nav>
 
   <section class="settings" id="settings" hidden aria-label="Einstellungen"></section>
+
+  <div class="view" id="view-briefing" hidden><iframe class="frame" data-src="planer.html?v=brief" title="Morgenbriefing"></iframe></div>
+  <div class="view" id="view-planer" hidden><iframe class="frame" data-src="planer.html?v=plan" title="Timeboxing-Planer"></iframe></div>
 
   <div class="view" id="view-tasks">
     <section aria-label="Neue Aufgabe">
