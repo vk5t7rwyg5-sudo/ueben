@@ -582,14 +582,14 @@ function briefItem(it, i, src){
     <div class="acts2">${planned ? '<span class="ok-tag">eingeplant</span>' : `<button class="mini-act" type="button" data-act="bplan">Einplanen${durMin(it.dur) ? ' · ' + esc(durTxt(durMin(it.dur))) : ''}</button>`}</div>
   </div>`;
 }
-// Manuell anfordern: Datensatz meta:briefRequest {requestedAt, date, doneAt?}; die geplante Aufgabe «briefing-auf-abruf» prüft alle 15 Min.
+// Manuell anfordern: Datensatz meta:briefRequest {requestedAt, date, doneAt?}; die geplante Aufgabe «briefing-auf-abruf» prüft alle 5 Min.
 const briefReq = () => (ST && ST.recs.get('meta:briefRequest')) || {};
 const briefPending = r => !!r.requestedAt && (!r.doneAt || r.doneAt < r.requestedAt);
 const hhmm = x => new Date(x).toLocaleTimeString('de-CH', {hour:'2-digit', minute:'2-digit'});
 function reqBar(){
   if (VIEW !== 'brief' || !ST) return '';
   const r = briefReq();
-  if (briefPending(r)) return `<div class="req"><span><b>Angefordert um ${hhmm(r.requestedAt)}</b> für ${esc(fmtShort(r.date || S.key))} – Claude erstellt das Briefing in den nächsten 15 Minuten.</span><button class="btn ghost" type="button" id="briefCancel">Abbrechen</button></div>`;
+  if (briefPending(r)) return `<div class="req"><span><b>Angefordert um ${hhmm(r.requestedAt)}</b> für ${esc(fmtShort(r.date || S.key))} – ${r.startedAt && r.startedAt >= r.requestedAt ? `Claude arbeitet daran (seit ${hhmm(r.startedAt)}), meist 3–5 Minuten.` : 'Claude beginnt innerhalb von 5 Minuten.'}</span><button class="btn ghost" type="button" id="briefCancel">Abbrechen</button></div>`;
   const last = r.doneAt && r.status === 'erstellt' ? `Zuletzt auf Anfrage erstellt um ${hhmm(r.doneAt)}.`
     : r.doneAt && r.status === 'fehlgeschlagen' ? `<b>Letzter Versuch fehlgeschlagen</b> (${hhmm(r.doneAt)})${r.error ? ': ' + esc(r.error) : ''}.`
     : 'Mails, Kalender und Aufgaben neu auswerten.';
@@ -688,7 +688,7 @@ $('brief').addEventListener('click', e => {
   if (e.target.id === 'briefApply') { applyBrief(); return; }
   if (e.target.id === 'briefReqBtn' && ST) {
     ST.set('meta:briefRequest', {requestedAt: new Date().toISOString(), date: S.key}); notify(); render();
-    toast('Angefordert – das Briefing kommt in den nächsten 15 Minuten'); return;
+    toast('Angefordert – Claude beginnt innerhalb von 5 Minuten'); return;
   }
   if (e.target.id === 'briefCancel' && ST) {
     ST.set('meta:briefRequest', Object.assign({}, briefReq(), {doneAt: new Date().toISOString(), status: 'abgebrochen'})); notify(); render(); return;
