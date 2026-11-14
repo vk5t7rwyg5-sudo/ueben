@@ -94,7 +94,7 @@
     let html = `<option value="">${esc(emptyLabel)}</option>`;
     for (const a of areas) {
       html += `<optgroup label="${esc(a.name)}"><option value="${esc(a.id)}::">${esc(a.name)}</option>`;
-      for (const s of a.sections || []) html += `<option value="${esc(`${a.id}::${s.name}`)}">${esc(a.name)} · ${esc(s.name)}</option>`;
+      for (const s of a.sections || []) html += `<option value="${esc(`${a.id}::${s.name}`)}">${esc(s.name)}</option>`;
       html += `</optgroup>`;
     }
     return html.replace(`value="${esc(selected)}"`, `value="${esc(selected)}" selected`);
