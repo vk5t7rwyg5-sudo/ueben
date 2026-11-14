@@ -93,6 +93,7 @@
     { re: /\bjbo\b|jugendblas/i, id: "jbo" },
     { re: /gugge/i, name: "Gugge", hue: 330 },
     { re: /milmusik|militär/i, name: "Militärmusik", hue: 120 },
+    { re: /bischof+szell/i, name: "Bischofszell", hue: 75 },
   ];
   const isProbe = (t) => /prob/i.test(t || "") && !/probelektion|schnupper/i.test(t);
   function vereinOf(t) {
