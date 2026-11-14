@@ -84,6 +84,51 @@
     return Array.from({ length: 7 }, (_, i) => { const x = new Date(mon); x.setDate(mon.getDate() + i); return iso(x); });
   }
   const minutesOn = (d) => days.get(d)?.total || 0;
+
+  // ---------- Proben aus TimeTree (meta:timetree → Datensatz «proben») ----------
+  // Probe = eigener TimeTree-Termin mit Uhrzeit, Titel enthält «prob». Verein aus dem Titel.
+  const VEREINE = [
+    { re: /liberty|\blbb\b/i, id: "liberty" },
+    { re: /stadtmusik|\bsma\b|arbon/i, id: "sma" },
+    { re: /\bjbo\b|jugendblas/i, id: "jbo" },
+    { re: /gugge/i, name: "Gugge", hue: 330 },
+    { re: /milmusik|militär/i, name: "Militärmusik", hue: 120 },
+  ];
+  const isProbe = (t) => /prob/i.test(t || "") && !/probelektion|schnupper/i.test(t);
+  function vereinOf(t) {
+    const v = VEREINE.find((x) => x.re.test(t));
+    if (v) return v.id ? { id: v.id, name: areaById(v.id)?.name || v.id, hue: hue(v.id) } : { id: v.name, name: v.name, hue: v.hue };
+    const rest = t.replace(/\b\w*prob\w*\b/gi, "").replace(/\s+/g, " ").trim() || "Andere";
+    return { id: rest, name: rest, hue: 200 };
+  }
+  const probenRec = () => Store.recs.get("proben")?.list || {};
+  function syncProben() {
+    const tt = Store.recs.get("meta:timetree"); if (!tt || !Array.isArray(tt.events)) return;
+    const cur = probenRec(), next = { ...cur }, today = todayStr(), seen = new Set();
+    for (const e of tt.events) {
+      if (!e || !e.id || e.ad || e.s == null || e.e == null || !isProbe(e.t)) continue;
+      const v = vereinOf(e.t); seen.add(e.id);
+      next[e.id] = { d: e.d, s: e.s, min: Math.max(0, e.e - e.s), title: e.t, verein: v.id };
+    }
+    // abgesagte künftige Proben (im Abgleich-Zeitraum, nicht mehr in TimeTree) entfernen
+    for (const [id, p] of Object.entries(cur)) if (!seen.has(id) && p.d >= today && p.d >= (tt.from || "") && p.d <= (tt.to || "")) delete next[id];
+    if (JSON.stringify(next) !== JSON.stringify(cur)) Store.set("proben", { list: next });
+  }
+  // nur vergangene Proben zählen
+  function probenOn(d) {
+    const today = todayStr(), now = new Date(), nm = now.getHours() * 60 + now.getMinutes();
+    return Object.values(probenRec()).filter((p) => p.d === d && (d < today || (d === today && p.s + p.min <= nm)));
+  }
+  const probeMinOn = (d) => probenOn(d).reduce((a, p) => a + p.min, 0);
+  function vereinStats(days30) {
+    const m = new Map();
+    for (const d of days30) for (const p of probenOn(d)) {
+      const v = vereinOf(p.title), x = m.get(v.id) || { ...v, n: 0, min: 0 };
+      x.n++; x.min += p.min; m.set(v.id, x);
+    }
+    return [...m.values()].sort((a, b) => b.min - a.min);
+  }
+  const hrs = (min) => (min / 60).toLocaleString("de-CH", { maximumFractionDigits: 1 }) + " h";
   function streak() {
     const d = new Date(); if (!minutesOn(iso(d))) d.setDate(d.getDate() - 1);
     let n = 0; while (minutesOn(iso(d)) > 0) { n++; d.setDate(d.getDate() - 1); }
@@ -98,7 +143,9 @@
     const week = weekDays(), today = todayStr();
     if (selDay !== today && !week.includes(selDay)) selDay = today;
     const weekTotal = week.reduce((a, d) => a + minutesOn(d), 0);
-    $("pstats").innerHTML = [["Min. diese Woche", weekTotal], ["Tage Serie", streak()], ["Stücke aktiv", active().length], ["heute geübt", minutesOn(today)]]
+    if (ready) syncProben();
+    const weekProbe = week.reduce((a, d) => a + probeMinOn(d), 0);
+    $("pstats").innerHTML = [["Min. diese Woche", weekTotal], ["Proben diese Woche", hrs(weekProbe)], ["Tage Serie", streak()], ["heute geübt", minutesOn(today)]]
       .map(([l, n]) => `<div class="stat"><b>${n}</b><span class="label">${l}</span></div>`).join("");
 
     $("gear").setAttribute("aria-pressed", showSettings);
@@ -130,14 +177,21 @@
       $("plan-total").textContent = `Vorschlag für ${session} Minuten · berechnet aus Termin, letzter Übezeit, Phase und offenen Baustellen`;
     }
 
-    const max = Math.max(30, ...week.map(minutesOn));
+    const max = Math.max(30, ...week.map((d) => minutesOn(d) + probeMinOn(d)));
     $("bars").innerHTML = week.map((d) => {
-      const m = minutesOn(d); const h = Math.round((m / max) * 100);
-      return `<button type="button" class="bar${d === today ? " today" : ""}${m ? "" : " zero"}${d === selDay ? " sel" : ""}" data-day="${d}" aria-pressed="${d === selDay}" title="${fmt(d)}: ${m} Min. – Einträge anzeigen"><em>${m || ""}</em><i style="height:${m ? Math.max(h, 4) : 2}%"></i><span>${WD[parse(d).getDay()]}</span></button>`;
+      const m = minutesOn(d), pm = probeMinOn(d), h = Math.round((m / max) * 100), ph = Math.round((pm / max) * 100);
+      const tip = `${fmt(d)}: ${m} Min. geübt${pm ? `, ${pm} Min. Probe` : ""} – Einträge anzeigen`;
+      return `<button type="button" class="bar${d === today ? " today" : ""}${m || pm ? "" : " zero"}${d === selDay ? " sel" : ""}" data-day="${d}" aria-pressed="${d === selDay}" title="${esc(tip)}"><em>${m + pm || ""}</em>${pm ? `<u style="height:${Math.max(ph, 4)}%"></u>` : ""}<i style="height:${m ? Math.max(h, 4) : pm ? 0 : 2}%"></i><span>${WD[parse(d).getDay()]}</span></button>`;
     }).join("");
+    const last30 = Array.from({ length: 30 }, (_, i) => { const x = new Date(); x.setDate(x.getDate() - i); return iso(x); });
+    const vs = vereinStats(last30);
+    $("pvereine").innerHTML = vs.length
+      ? `<div class="label">Proben · letzte 30 Tage</div>` + vs.map((v) => `<div class="vrow"><span class="dot" style="--h:${v.hue}"></span><span class="t">${esc(v.name)}</span><span class="n">${v.n}×</span><span class="m">${hrs(v.min)}</span></div>`).join("")
+      : `<div class="label">Proben · letzte 30 Tage</div><div class="vrow muted">Noch keine – Proben aus TimeTree erscheinen hier, sobald sie vorbei sind.</div>`;
 
-    const ents = days.get(selDay)?.entries || [];
-    $("daylog").innerHTML = `<div class="label">${selDay === today ? "Heute" : esc(fmt(selDay))} · ${ents.length ? ents.reduce((a, e) => a + (e.min || 0), 0) + " Min." : "nichts eingetragen"}</div>` +
+    const ents = days.get(selDay)?.entries || [], prs = probenOn(selDay);
+    $("daylog").innerHTML = `<div class="label">${selDay === today ? "Heute" : esc(fmt(selDay))} · ${ents.length ? ents.reduce((a, e) => a + (e.min || 0), 0) + " Min." : "nichts eingetragen"}${prs.length ? ` · ${prs.reduce((a, p) => a + p.min, 0)} Min. Probe` : ""}</div>` +
+      prs.map((p) => { const v = vereinOf(p.title); return `<div class="entry probe"><span class="m">${p.min}′</span><span class="t"><span class="dot" style="--h:${v.hue};display:inline-block;margin-right:6px"></span>${esc(p.title)}<small class="goal-sum">Probe · ${esc(v.name)} · aus TimeTree</small></span></div>`; }).join("") +
       ents.map((e, i) => `<div class="entry"><span class="m">${e.min}′</span><span class="t">${esc(pieces.get(e.piece)?.title || e.title || "Stück")}${e.goals ? `<small class="goal-sum">${e.goals.filter((g) => g.done).length}/${e.goals.length} Ziele${e.goals.length ? ": " + e.goals.map((g) => (g.done ? "✓ " : "○ ") + esc(g.text)).join(" · ") : ""}</small>` : ""}</span>${confirmIdx === i ? `<button type="button" data-entry-del="${i}" style="color:var(--danger);border-color:var(--danger)">Entfernen?</button>` : `<button type="button" data-entry-ask="${i}" aria-label="Eintrag entfernen">Entfernen</button>`}</div>`).join("");
 
     const sel = $("padd-area"); const v = sel.value; const sig = JSON.stringify(areas.map((a) => [a.id, a.name, a.parent]));
