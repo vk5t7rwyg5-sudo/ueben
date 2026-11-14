@@ -311,5 +311,11 @@ body.framed .wrap { gap: 14px; padding-bottom: 0; }
 .vrow { display: flex; align-items: center; gap: 8px; padding: 5px 0; border-top: 1px solid var(--line); }
 .vrow .t { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .vrow .n, .vrow .m { font-family: var(--font-mono); font-variant-numeric: tabular-nums; color: var(--muted); }
-.vrow .m { width: 52px; text-align: right; color: var(--fg); }
+.vrow .m { width: 48px; text-align: right; color: var(--fg); }
+.vrow .c { display: flex; justify-content: flex-end; gap: 6px; width: 92px; flex: none; }
+.vrow .c.label, .vrow.vhead .c { text-align: right; justify-content: flex-end; }
+.vrow.vhead { border-top: 0; padding-bottom: 2px; }
+.vrow.vhead .label { padding: 0; }
+.vrow.vsum { font-weight: 600; }
+.vrow .m.muted { color: var(--muted); }
 .vrow.muted { color: var(--muted); }

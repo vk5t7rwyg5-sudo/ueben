@@ -185,10 +185,13 @@
       return `<button type="button" class="bar${d === today ? " today" : ""}${m || pm ? "" : " zero"}${d === selDay ? " sel" : ""}" data-day="${d}" aria-pressed="${d === selDay}" title="${esc(tip)}"><em>${m + pm || ""}</em>${pm ? `<u style="height:${Math.max(ph, 4)}%"></u>` : ""}<i style="height:${m ? Math.max(h, 4) : pm ? 0 : 2}%"></i><span>${WD[parse(d).getDay()]}</span></button>`;
     }).join("");
     const last30 = Array.from({ length: 30 }, (_, i) => { const x = new Date(); x.setDate(x.getDate() - i); return iso(x); });
-    const vs = vereinStats(last30);
-    $("pvereine").innerHTML = vs.length
-      ? `<div class="label">Proben · letzte 30 Tage</div>` + vs.map((v) => `<div class="vrow"><span class="dot" style="--h:${v.hue}"></span><span class="t">${esc(v.name)}</span><span class="n">${v.n}×</span><span class="m">${hrs(v.min)}</span></div>`).join("")
-      : `<div class="label">Proben · letzte 30 Tage</div><div class="vrow muted">Noch keine – Proben aus TimeTree erscheinen hier, sobald sie vorbei sind.</div>`;
+    const vsW = vereinStats(week), vs30 = vereinStats(last30), wk = new Map(vsW.map((v) => [v.id, v]));
+    const cell = (v) => v ? `<span class="n">${v.n}×</span><span class="m">${hrs(v.min)}</span>` : `<span class="n"></span><span class="m muted">–</span>`;
+    $("pvereine").innerHTML = `<div class="vrow vhead"><span class="dot" style="visibility:hidden"></span><span class="label t">Proben nach Verein</span><span class="label c">Diese Woche</span><span class="label c">30 Tage</span></div>` +
+      (vs30.length
+        ? vs30.map((v) => `<div class="vrow"><span class="dot" style="--h:${v.hue}"></span><span class="t">${esc(v.name)}</span><span class="c">${cell(wk.get(v.id))}</span><span class="c">${cell(v)}</span></div>`).join("") +
+          `<div class="vrow vsum"><span class="dot" style="visibility:hidden"></span><span class="t">Total</span><span class="c">${cell(vsW.length ? vsW.reduce((a, v) => ({ n: a.n + v.n, min: a.min + v.min }), { n: 0, min: 0 }) : null)}</span><span class="c">${cell(vs30.reduce((a, v) => ({ n: a.n + v.n, min: a.min + v.min }), { n: 0, min: 0 }))}</span></div>`
+        : `<div class="vrow muted">Noch keine – Proben aus TimeTree erscheinen hier, sobald sie vorbei sind.</div>`);
 
     const ents = days.get(selDay)?.entries || [], prs = probenOn(selDay);
     $("daylog").innerHTML = `<div class="label">${selDay === today ? "Heute" : esc(fmt(selDay))} · ${ents.length ? ents.reduce((a, e) => a + (e.min || 0), 0) + " Min." : "nichts eingetragen"}${prs.length ? ` · ${prs.reduce((a, p) => a + p.min, 0)} Min. Probe` : ""}</div>` +
