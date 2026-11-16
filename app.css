@@ -319,3 +319,10 @@ body.framed .wrap { gap: 14px; padding-bottom: 0; }
 .vrow.vsum { font-weight: 600; }
 .vrow .m.muted { color: var(--muted); }
 .vrow.muted { color: var(--muted); }
+
+/* Session-Vorschläge */
+.plan-goals { margin: 4px 0 0; padding-left: 16px; font-size: 12.5px; color: var(--muted); }
+.plan-goals li { margin: 1px 0; }
+.plan-acts { display: flex; flex-direction: column; gap: 6px; align-items: stretch; }
+.t-len { display: inline-flex; vertical-align: middle; margin: 2px 0 6px; }
+@media (max-width: 560px) { .plan-item { grid-template-columns: 44px minmax(0, 1fr); } .plan-acts { grid-column: 2; flex-direction: row; } }
