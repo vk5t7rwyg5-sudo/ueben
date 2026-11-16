@@ -460,6 +460,9 @@
   let tEdit = false, wake = null, actx = null;
   const saveT = () => pref.set("ueben.timer", T), saveCfg = () => pref.set("ueben.timerCfg", tcfg);
   const mmss = (ms) => { const s = Math.max(0, Math.ceil(ms / 1000)); return `${Math.floor(s / 60)}:${pad(s % 60)}`; };
+  const OVER_MAX = 60 * 60000;   // länger als 60′ Überzeit = vergessen → nur geplante Zeit eintragen
+  // Restzeit, nach Ablauf als «+m:ss» Überzeit (zählt hoch)
+  const tTxt = (ms) => (ms > 0 ? mmss(ms) : "+" + mmss(Math.floor(-ms / 1000) * 1000));
   const leftMs = () => (T.paused ? T.left : T.endsAt - Date.now());
   const sessMinFor = (p) => { const dd = p.deadline ? dayDiff(p.deadline) : 999; return dd >= 0 && dd <= 7 ? 30 : 20; };
   const suggestPiece = () => active().map((p) => ({ p, s: score(p) })).sort((a, b) => b.s - a.s)[0]?.p._id || "";
@@ -509,7 +512,7 @@
   }
   function tPause() {
     if (T.paused) { T.endsAt = Date.now() + T.left; T.paused = false; keepAwake(true); }
-    else { T.left = Math.max(0, T.endsAt - Date.now()); T.paused = true; }
+    else { T.left = T.endsAt - Date.now(); T.paused = true; }   // negativ = Überzeit
     saveT(); render();
   }
   function tStop() {
@@ -517,7 +520,7 @@
     if (T.phase === "goals") { T = { ...T, phase: T.round ? "ready" : "idle", goals: [], sessMin: 0, prefill: null }; saveT(); render(); return; }
     const done = Math.round((T.workMin * 60000 - leftMs()) / 60000), piece = T.piece || null, goals = T.goals || [];
     const r = done >= 5 ? T.round : Math.max(0, (T.round || 1) - 1);
-    T = { ...T, phase: r ? "ready" : "idle", round: r, paused: false, goals: [], sessMin: 0, prefill: null }; saveT(); keepAwake(false); document.title = "Zentrale";
+    T = { ...T, phase: r ? "ready" : "idle", round: r, paused: false, over: false, goals: [], sessMin: 0, prefill: null }; saveT(); keepAwake(false); document.title = "Zentrale";
     if (done >= 5) logPractice(piece, done, goals); else render();
   }
   // Prüft Phasenwechsel, auch rückwirkend (App war im Hintergrund)
@@ -526,9 +529,12 @@
     if (T.paused || (T.phase !== "work" && T.phase !== "brk")) return false;
     if (Date.now() < T.endsAt) return false;
     if (T.phase === "work") {
+      // Zeit um: Ton, dann läuft die Überzeit weiter, bis Stopp gedrückt wird (Stopp trägt Soll + Überzeit ein)
+      if (!T.over) { T.over = true; saveT(); chime(3); return true; }
+      if (Date.now() - T.endsAt < OVER_MAX) return false;
       const piece = T.piece || null, min = T.workMin, goals = T.goals || [];
-      T.phase = "ready"; T.sessMin = 0; T.prefill = null; saveT(); keepAwake(false);   // zuerst Phase wechseln, dann eintragen (render ruft tCheck)
-      chime(3); logPractice(piece, min, goals); return true;
+      T.phase = "ready"; T.over = false; T.sessMin = 0; T.prefill = null; saveT(); keepAwake(false);   // zuerst Phase wechseln, dann eintragen (render ruft tCheck)
+      logPractice(piece, min, goals); toast(`Stopp vergessen? ${min}′ eingetragen`); return true;
     }
     if (T.phase === "brk") { T.phase = "ready"; saveT(); keepAwake(false); chime(2); return true; }
     return false;
@@ -541,7 +547,8 @@
     if (ready && T.piece && !pieces.get(T.piece)) T.piece = "";
     const opts = `<option value="">Freies Üben</option>` + act.map((p) => `<option value="${esc(p._id)}"${p._id === (T.piece || "") ? " selected" : ""}>${esc(p.title)}</option>`).join("");
     const running = T.phase === "work" || T.phase === "brk";
-    const label = { idle: "Übe-Session", goals: "3 erreichbare Ziele für diese Session", work: "Session läuft", brk: "Pause", ready: `Session geschafft${T.round > 1 ? ` · ${T.round} heute` : ""}` }[T.phase];
+    const over = T.phase === "work" && leftMs() <= 0;
+    const label = { idle: "Übe-Session", goals: "3 erreichbare Ziele für diese Session", work: over ? "Zeit um – Überzeit läuft" : "Session läuft", brk: "Pause", ready: `Session geschafft${T.round > 1 ? ` · ${T.round} heute` : ""}` }[T.phase];
     const total = (T.phase === "brk" ? tcfg.brk : T.workMin) * 60000;
     const pct = running ? Math.min(100, Math.max(0, 100 - (leftMs() / total) * 100)) : 0;
     let main;
@@ -555,11 +562,11 @@
         <div class="err" id="t-goal-err" hidden>Bitte alle 3 Ziele ausfüllen.</div>
         <div class="row"><button class="btn" type="button" data-t="go">Los – ${sm}′ starten</button><button class="btn ghost" type="button" data-t="stop">Abbrechen</button></div>`;
     } else if (running) {
-      main = `<div class="t-time mono" id="t-time">${mmss(leftMs())}</div>
+      main = `<div class="t-time mono" id="t-time">${tTxt(leftMs())}</div>
         <div class="t-bar"><i id="t-bar" style="width:${pct}%"></i></div>
         <div class="t-sub">${T.phase === "work" ? `${esc(pieces.get(T.piece)?.title || "Freies Üben")} · ${T.workMin}′` : "Aufstehen, trinken, Hände lockern"}${T.paused ? " · angehalten" : ""}</div>
         ${T.phase === "work" ? goalList : ""}
-        <div class="row"><button class="btn" type="button" data-t="pause">${T.paused ? "Weiter" : "Anhalten"}</button><button class="btn ghost" type="button" data-t="stop">${T.phase === "work" ? "Beenden" : "Pause überspringen"}</button></div>`;
+        <div class="row"><button class="btn" type="button" data-t="pause">${T.paused ? "Weiter" : "Anhalten"}</button><button class="btn${over ? "" : " ghost"}" type="button" data-t="stop">${T.phase === "work" ? (over ? "Stopp – eintragen" : "Beenden") : "Pause überspringen"}</button></div>`;
     } else {
       main = `<div class="t-time mono">${tcfg.work}:00</div>
         <div class="t-sub">Eine Session: ${tcfg.work}′ mit 3 Zielen. Wann die nächste kommt, entscheidest du.</div>
@@ -570,17 +577,17 @@
         <div class="row"><span class="label">Standardlänge</span><div class="seg">${[15, 20, 25, 30, 45].map((m) => `<button type="button" data-t="work" data-v="${m}" aria-pressed="${tcfg.work === m}">${m}′</button>`).join("")}</div></div>
       </div>` : "";
     if (!running) document.title = "Zentrale";
-    box.className = "timer" +(T.phase === "work" ? " is-work" : T.phase === "brk" ? " is-brk" : "");
+    box.className = "timer" + (T.phase === "work" ? " is-work" + (over ? " is-over" : "") : T.phase === "brk" ? " is-brk" : "");
     box.innerHTML = `<div class="label">${label}</div>${main}${edit}`;
   }
   function tick() {
     if (T.phase !== "work" && T.phase !== "brk") return;
     if (tCheck()) { render(); return; }
     const t = $("t-time"), b = $("t-bar"); if (!t) return;
-    t.textContent = mmss(leftMs());
+    t.textContent = tTxt(leftMs());
     const total = (T.phase === "brk" ? tcfg.brk : T.workMin) * 60000;
     b.style.width = Math.min(100, Math.max(0, 100 - (leftMs() / total) * 100)) + "%";
-    document.title = `${mmss(leftMs())} · ${T.phase === "work" ? "Üben" : "Pause"}`;
+    document.title = `${tTxt(leftMs())} · ${T.phase === "work" ? "Üben" : "Pause"}`;
   }
   setInterval(tick, 1000);
   document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && T.phase === "work" && !T.paused) keepAwake(true); });
