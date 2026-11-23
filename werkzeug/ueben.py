@@ -61,9 +61,13 @@ acct = hashlib.sha256(salt.encode()).hexdigest()[:40]
 
 found = None
 variants = []
-for v in (pw, unicodedata.normalize("NFC", pw), unicodedata.normalize("NFD", pw)):
-    if v not in variants:
-        variants.append(v)
+bases = [pw, pw.strip()]
+if len(pw.strip()) > 1 and pw.strip()[0] == pw.strip()[-1] and pw.strip()[0] in "\"'":
+    bases.append(pw.strip()[1:-1])
+for base in bases:
+    for v in (base, unicodedata.normalize("NFC", base), unicodedata.normalize("NFD", base)):
+        if v not in variants:
+            variants.append(v)
 for v in variants:
     b = hashlib.pbkdf2_hmac("sha256", v.encode(), salt.encode(), 600000, 64)
     a = b[:32].hex()
@@ -72,7 +76,10 @@ for v in variants:
         found = (a, b[32:], r["wrapPw"])
         break
 if not found:
-    fail("Anmeldung fehlgeschlagen: E-Mail/Passwort passen zu keinem Konto.")
+    hints = [f"Konto-ID {acct[:8]}… (aus UEBEN_EMAIL)"]
+    if pw != pw.strip(): hints.append("Passwort hat Leerzeichen am Rand")
+    if pw.strip()[:1] in "\"'<": hints.append("Passwort beginnt mit Anführungszeichen oder <")
+    fail("Anmeldung fehlgeschlagen: E-Mail/Passwort passen zu keinem Konto. " + "; ".join(hints))
 auth, kek, wrap = found
 try:
     KEY = gcm_open(wrap, kek)
