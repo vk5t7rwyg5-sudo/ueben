@@ -93,9 +93,13 @@
   function areaOptions(selected, emptyLabel) {
     let html = `<option value="">${esc(emptyLabel)}</option>`;
     for (const a of areas) {
-      html += `<optgroup label="${esc(a.name)}"><option value="${esc(a.id)}::">${esc(a.name)}</option>`;
-      for (const s of a.sections || []) html += `<option value="${esc(`${a.id}::${s.name}`)}">${esc(s.name)}</option>`;
-      html += `</optgroup>`;
+      // Bereich selbst als Kopfzeile (wählbar), Unterbereiche eingerückt; Unterbereich mit gleichem Namen wie der Bereich weglassen
+      html += `<option value="${esc(a.id)}::">${esc(a.name)}</option>`;
+      for (const s of a.sections || []) {
+        const v = `${a.id}::${s.name}`;
+        if (s.name === a.name && v !== selected) continue;
+        html += `<option value="${esc(v)}">    ${esc(s.name)}</option>`;
+      }
     }
     return html.replace(`value="${esc(selected)}"`, `value="${esc(selected)}" selected`);
   }
